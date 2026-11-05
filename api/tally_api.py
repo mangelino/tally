@@ -211,14 +211,26 @@ def create_meeting(owner, params, body) -> dict:
     """Registers a recording and hands back where to upload it. Calling it again for one still uploading, or one
     that failed (Send again), gives a fresh URL; for one already on its way or ready it refuses, so a repeated send
     can never start a second run or overwrite what the owner confirmed. While ON_THEIR_WAY of the person's other
-    meetings are still being summarised, it says so (429) and the app sends it again at its next sync."""
+    meetings are still being summarised, it says so (429) and the app sends it again at its next sync.
+
+    Audio that's here already is never replaced: the upload URL only creates (If-None-Match), and a failed meeting
+    whose audio is here runs again from it, without an upload (409, as sent). A copy gone bad on the computer can't
+    take the good one with it."""
     meeting_id = params["id"]
     existing = meeting_of(owner, meeting_id)
-    if existing and summary_of(existing)["state"] not in ("uploading", "failed"):
+    state = existing and summary_of(existing)["state"]
+    if state not in (None, "uploading", "failed"):
         raise Problem(409, "this meeting has been sent already")
     working = [m for m in mine(meetings, owner) if m["meeting_id"] != meeting_id and summary_of(m)["state"] in ("uploading", "queued", "processing")]
     if len(working) >= ON_THEIR_WAY:
         raise Problem(429, f"{ON_THEIR_WAY} of your meetings are being summarised already. This one is sent when they're done")
+    audio = f"{prefix(owner, meeting_id)}/audio.m4a"
+    if size := audio_size(audio):
+        if state == "failed":
+            run_again(owner, existing, audio)
+        raise Problem(409, "this meeting has been sent already")  # uploading: the upload landed, and started the job
+    if size == 0:  # an empty upload (an app before this rule) blocks no other: it goes
+        s3.delete_object(Bucket=BUCKET, Key=audio)
     meta = {k: instant(body.get(k)) for k in ("started_at", "ended_at")} | {"app_version": line(body.get("app_version") or "")}
     meta = {k: v for k, v in meta.items() if v}
     if "started_at" not in meta:
@@ -231,8 +243,37 @@ def create_meeting(owner, params, body) -> dict:
                          ExpressionAttributeValues={":uploading": "uploading", ":t": now(), ":none": None,
                                                     ":started": meta["started_at"], ":ended": meta.get("ended_at")})
     url = s3.generate_presigned_url("put_object", ExpiresIn=3600, Params={
-        "Bucket": BUCKET, "Key": f"{prefix(owner, meeting_id)}/audio.m4a", "ContentType": "audio/mp4"})
-    return {"upload_url": url, "upload_headers": {"Content-Type": "audio/mp4"}}
+        "Bucket": BUCKET, "Key": audio, "ContentType": "audio/mp4", "IfNoneMatch": "*"})
+    return {"upload_url": url, "upload_headers": {"Content-Type": "audio/mp4", "If-None-Match": "*"}}
+
+
+def audio_size(key: str) -> int | None:
+    """The uploaded audio's size, or None when there's none."""
+    try:
+        return s3.head_object(Bucket=BUCKET, Key=key)["ContentLength"]
+    except s3.exceptions.ClientError as e:
+        if e.response["Error"]["Code"] in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+
+
+def run_again(owner: str, item: dict, audio: str) -> None:
+    """A failed meeting's job again, from the audio it has: queued, as an upload would leave it. Conditional on the
+    row as it was read, so two quick Send agains start one job."""
+    try:
+        meetings.update_item(Key={"owner": owner, "meeting_id": item["meeting_id"]},
+                             UpdateExpression="SET #s = :queued, updated_at = :t, #e = :none",
+                             ConditionExpression="#s = :was AND updated_at = :then", ExpressionAttributeNames={"#s": "state", "#e": "error"},
+                             ExpressionAttributeValues={":queued": "queued", ":t": now(), ":none": None, ":was": item["state"], ":then": item["updated_at"]})
+    except meetings.meta.client.exceptions.ConditionalCheckFailedException:
+        return  # another Send again got there first
+    try:
+        batch.submit_job(jobName="tally-meeting", jobQueue=os.environ["TALLY_JOB_QUEUE"], jobDefinition=os.environ["TALLY_JOB_DEFINITION"],
+                         parameters={"key": audio})
+    except Exception:  # no job will take it: failed again now, so the owner can send it again
+        change(owner, item["meeting_id"], UpdateExpression="SET #s = :failed, #e = :e", ExpressionAttributeNames={"#s": "state", "#e": "error"},
+               ExpressionAttributeValues={":failed": "failed", ":e": "Something went wrong while summarising it."})
+        raise
 
 
 def uploaded(owner, params, _body) -> dict:

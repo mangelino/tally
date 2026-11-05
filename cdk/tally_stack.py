@@ -240,6 +240,18 @@ class TallyStack(cdk.Stack):
         # A deleted meeting's job, stopped: Batch scopes TerminateJob to jobs, not to their queue, and the API stops only
         # the job its owner's meeting row names
         function.add_to_role_policy(iam.PolicyStatement(actions=["batch:TerminateJob"], resources=[f"arn:aws:batch:{self.region}:{self.account}:job/*"]))
+        # A meeting's job killed without a word (out of memory, say) can't fail its meeting itself: Batch's own event
+        # does, so the app offers Send again in minutes, not hours (api/job_failed.py)
+        failed = lambda_.Function(
+            self, "JobFailedFunction", runtime=lambda_.Runtime.PYTHON_3_13, architecture=lambda_.Architecture.ARM_64,
+            handler="job_failed.handler", code=lambda_.Code.from_asset(str(API), exclude=["tests", "__pycache__", ".pytest_cache"]),
+            timeout=cdk.Duration.seconds(10), environment={"TALLY_MEETINGS_TABLE": meetings.table_name},
+            log_group=logs.LogGroup(self, "JobFailedLogs", retention=logs.RetentionDays.ONE_MONTH))
+        failed.add_to_role_policy(iam.PolicyStatement(actions=["dynamodb:UpdateItem"], resources=[meetings.table_arn]))
+        events.Rule(self, "JobFailed", event_pattern=events.EventPattern(
+            source=["aws.batch"], detail_type=["Batch Job State Change"], detail={"status": ["FAILED"], "jobQueue": [queue.job_queue_arn]}),
+            targets=[targets.LambdaFunction(failed, retry_attempts=3)])
+
         # The admin dashboard on the install page calls it from the browser: that one origin, reading only
         # ("Keycloak" is only the authorizer's id, from its first provider: a new id would replace the live one)
         api = apigw.HttpApi(self, "Api", default_authorizer=authorizers.HttpJwtAuthorizer(

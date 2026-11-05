@@ -99,7 +99,11 @@ struct API {
     /// The API has this meeting already (a send that got further than the app knew): nothing more to upload.
     struct AlreadySent: Error {}
 
-    /// Registers a recording and uploads its audio, which starts the pipeline. Throws `AlreadySent` when it's sent.
+    /// The recording's audio isn't on this Mac, or is empty, and the API hasn't any: there's nothing to send.
+    struct NoAudio: Error {}
+
+    /// Registers a recording and uploads its audio, which starts the pipeline. Throws `AlreadySent` when it's sent
+    /// (or sent again from the audio the API has), and `NoAudio` rather than upload a file that's gone or empty.
     func upload(_ recording: Recording, appVersion: String) async throws {
         var body = ["started_at": recording.startedAt.ISO8601Format(), "app_version": appVersion]
         body["ended_at"] = recording.endedAt?.ISO8601Format()
@@ -109,7 +113,13 @@ struct API {
         } catch let error as Failure where error.code == 409 {
             throw AlreadySent()
         }
+        guard Self.sendable(recording.audio) else { throw NoAudio() }
         try await put(recording.audio, upload)
+    }
+
+    /// Audio that's there and not empty: URLSession uploads a missing file as an empty body.
+    static func sendable(_ audio: URL) -> Bool {
+        ((try? FileManager.default.attributesOfItem(atPath: audio.path)[.size] as? Int) ?? 0) > 0
     }
 
     /// The audio is up: the meeting is queued.

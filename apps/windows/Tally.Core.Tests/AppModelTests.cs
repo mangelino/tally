@@ -211,6 +211,21 @@ public class AppModelTests : IDisposable
     });
 
     [Fact]
+    public void A_recording_whose_audio_is_gone_is_never_uploaded() => UiThread.Run(async () =>
+    {
+        SignIn();
+        File.Delete(Saved().Audio);
+        Accepting();
+        Listing("uploading");
+        var model = Model();
+        await model.Sync();
+        var broken = Assert.Single(model.Recordings);
+        Assert.Equal((RecordingState.Broken, "This recording's audio isn't on this PC any more, so it can't be sent."), (broken.State, broken.Error));
+        Assert.DoesNotContain(S3, http.Routes);  // an empty upload would have replaced the meeting's audio
+        Assert.False(Assert.Single(model.Items).CanRetry);
+    });
+
+    [Fact]
     public void A_step_that_fails_is_tried_again_from_where_it_stopped() => UiThread.Run(async () =>
     {
         SignIn();

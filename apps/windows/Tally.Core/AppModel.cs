@@ -426,6 +426,7 @@ public sealed class AppModel : ObservableObject
     /// <summary>A recording off this PC: its folder and its row, with the selection moved to the next one.</summary>
     private void Forget(string id)
     {
+        Platform.Log.Write("recordings", $"recording {id} removed from this PC");
         var neighbour = Neighbour(id);
         Recordings.FirstOrDefault(r => r.Id == id)?.Remove();
         Recordings = Recordings.RemoveAll(r => r.Id == id);
@@ -924,8 +925,8 @@ public sealed class AppModel : ObservableObject
         return index + 1 < ids.Count ? ids[index + 1] : index > 0 ? ids[index - 1] : null;
     }
 
-    /// <summary>Sends a meeting again: uploading its audio again starts the pipeline again. A recording that couldn't be
-    /// saved is encoded again first.</summary>
+    /// <summary>Sends a meeting again: the API runs it again from the audio it has, or takes this PC's again. A recording
+    /// that couldn't be saved is encoded again first.</summary>
     public void Retry(Item item)
     {
         if (Recordings.FirstOrDefault(r => r.Id == item.Id) is not { State: RecordingState.Sent or RecordingState.Broken } recording) return;
@@ -1950,6 +1951,7 @@ public sealed class AppModel : ObservableObject
             foreach (var recording in Recordings.Where(r => r.State is RecordingState.Sent or RecordingState.Uploaded
                          && !fresh.Any(m => m.MeetingId == r.Id && m.State != "ready")))
             {
+                Platform.Log.Write("recordings", $"recording {recording.Id} done with: its meeting is ready or gone");
                 recording.Remove();
                 Recordings = Recordings.RemoveAll(r => r.Id == recording.Id);
             }
@@ -2000,6 +2002,13 @@ public sealed class AppModel : ObservableObject
                 {
                     if (SignedOutMeanwhile()) return;
                     Store(recording with { State = RecordingState.Sent, Error = null });
+                    return;
+                }
+                catch (Api.NoAudio)
+                {
+                    Platform.Log.Write("recordings", $"recording {id} has no audio to send");
+                    // only Delete: there's nothing to send again
+                    Store(recording with { State = RecordingState.Broken, Error = "This recording's audio isn't on this PC any more, so it can't be sent." });
                     return;
                 }
                 if (SignedOutMeanwhile()) return;

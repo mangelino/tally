@@ -72,7 +72,7 @@ Sign-in opens the provider in the default browser, with PKCE and `tally://callba
 
 ## Recordings on the PC
 
-Recordings follow the Mac's rules ([macos.md](macos.md#recordings-on-the-mac)), under `%LOCALAPPDATA%\Tally\` ([data.md](data.md#on-windows)): `recordings\`, `settings.json`, `Cache\files\`, `Logs\` and `Crashes\`. Tally writes its own crash reports. Files are written whole before they replace the old, and a recording whose `local.json` can't be read is rebuilt from its folder.
+Recordings follow the Mac's rules ([macos.md](macos.md#recordings-on-the-mac)), under `%LOCALAPPDATA%\Tally\` ([data.md](data.md#on-windows)): `recordings\`, `settings.json`, `Cache\files\`, `Logs\` and `Crashes\`. Tally writes its own crash reports. Files are written whole before they replace the old, and a recording whose `local.json` can't be read is rebuilt from its folder. `Logs\` says when each recording's folder is removed, and why.
 
 ## Calls
 

@@ -30,8 +30,12 @@ public sealed class Api(Uri baseUrl, string token, string? version, HttpClient h
     /// <summary>The API has this meeting already (a send that got further than the app knew): nothing more to upload.</summary>
     public sealed class AlreadySent : Exception;
 
+    /// <summary>The recording's audio isn't on this PC, or is empty, and the API hasn't any: there's nothing to send.</summary>
+    public sealed class NoAudio : Exception;
+
     /// <summary>Registers a recording and uploads its audio, which starts the pipeline. Throws <see cref="AlreadySent"/>
-    /// when it's sent.</summary>
+    /// when it's sent (or sent again from the audio the API has), and <see cref="NoAudio"/> rather than upload a file
+    /// that's gone or empty.</summary>
     public async Task Upload(Recording recording, string appVersion)
     {
         var body = new Dictionary<string, object?> { ["started_at"] = Iso(recording.StartedAt), ["app_version"] = appVersion };
@@ -45,6 +49,7 @@ public sealed class Api(Uri baseUrl, string token, string? version, HttpClient h
         {
             throw new AlreadySent();
         }
+        if (new FileInfo(recording.Audio) is not { Exists: true, Length: > 0 }) throw new NoAudio();
         await Http.Upload(http, upload, recording.Audio);
     }
 

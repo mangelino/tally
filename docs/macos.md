@@ -61,6 +61,7 @@ Sign-in is OIDC with PKCE, through `ASWebAuthenticationSession` and `tally://cal
 ## Recordings on the Mac
 
 Recording never needs a sign-in. Each recording has a folder in `~/Library/Application Support/Tally/recordings/`, with its audio and `local.json` ([data.md](data.md)). It goes `recording → saved → uploading → uploaded → sent`, and the folder is deleted once its meeting is ready. Each step survives a failure and is tried again at the next sync: every 15 s while anything is on its way, otherwise every 60 s. After a crash or a quit, a recording's CAF is encoded and it's sent as usual.
+Audio that's gone or empty is never uploaded: the recording becomes `broken`, with only Delete. The log's `recordings` category says when each recording's folder is removed, and why (`/usr/bin/log show --predicate 'subsystem == "<bundle id>"'`).
 
 ## Calls
 

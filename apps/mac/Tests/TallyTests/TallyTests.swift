@@ -446,3 +446,15 @@ private func run(_ rules: inout CallRules, _ users: [AudioUser], for seconds: In
     let long = TranscriptPage.rows((0..<500).map { ("S\($0 % 3)", Double($0), "line") }, background: { _ in false }, folded: true)
     #expect(Set(long.map(\.id)).count == 500)
 }
+
+@Test func onlyAudioThatsThereAndNotEmptyIsUploaded() throws {
+    let folder = FileManager.default.temporaryDirectory.appending(path: ULID.make(), directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let audio = folder.appending(path: "audio.m4a")
+    #expect(!API.sendable(audio))  // gone: an upload of it would be empty, and replace the meeting's audio
+    try Data().write(to: audio)
+    #expect(!API.sendable(audio))
+    try Data([1]).write(to: audio)
+    #expect(API.sendable(audio))
+}

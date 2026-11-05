@@ -64,6 +64,11 @@ class FakeS3:
         return {"Contents": [{"Key": k, "Size": len(v), "LastModified": datetime(2026, 10, 26, tzinfo=UTC)}
                              for k, v in self.objects.items() if k.startswith(Prefix)]}
 
+    def head_object(self, Bucket, Key):
+        if Key not in self.objects:
+            raise ClientError("404")
+        return {"ContentLength": len(self.objects[Key])}
+
     def delete_object(self, Bucket, Key):
         self.objects.pop(Key, None)
 
@@ -108,6 +113,10 @@ class FakeTable:
             raise ConditionalCheckFailedException()
         if ConditionExpression == "attribute_exists(meeting_id)" and self._id(Key) not in self.items:
             raise ConditionalCheckFailedException()
+        if ConditionExpression == "#s = :was AND updated_at = :then":
+            found = self.items.get(self._id(Key), {})
+            if (found.get("state"), found.get("updated_at")) != (ExpressionAttributeValues[":was"], ExpressionAttributeValues[":then"]):
+                raise ConditionalCheckFailedException()
         item = self.items.setdefault(self._id(Key), dict(Key))
         if UpdateExpression.startswith(("ADD ", "DELETE ")):  # a string set, as DynamoDB keeps one: never empty
             verb, name, value = UpdateExpression.split()
@@ -232,6 +241,38 @@ def test_ten_meetings_on_their_way_are_enough_for_one_person(aws):
     assert call("PUT /meetings/{id}", started, user=FRIEND, id=MEETING)[0] == 200  # someone else's are theirs
     aws["meetings"].items[(ME, "01M5JHFTFH01KXC4V2P9JNFA00")]["state"] = "ready"
     assert call("PUT /meetings/{id}", started, id=MEETING)[0] == 200
+
+
+def test_audio_thats_here_is_never_replaced_and_a_failed_meeting_runs_again_from_it(aws):
+    status, out = call("PUT /meetings/{id}", {"started_at": "2026-10-22T09:00:00Z"}, id=MEETING)
+    assert out["upload_headers"]["If-None-Match"] == "*"  # the upload only creates: S3 refuses it over audio that's there
+    aws["s3"].put_object("b", f"{BASE}/audio.m4a", b"audio")
+    assert call("PUT /meetings/{id}", {"started_at": "2026-10-22T09:00:00Z"}, id=MEETING)[0] == 409  # uploaded: the job has it
+    assert not aws["batch"].submitted
+    aws["meetings"].items[(ME, MEETING)] |= {"state": "failed", "error": "Something went wrong while summarising it."}
+    assert call("PUT /meetings/{id}", {"started_at": "2026-10-22T09:00:00Z"}, id=MEETING)[0] == 409  # Send again: no upload
+    assert aws["batch"].submitted == [f"{BASE}/audio.m4a"] and aws["s3"].objects[f"{BASE}/audio.m4a"] == b"audio"
+    row = aws["meetings"].items[(ME, MEETING)]
+    assert row["state"] == "queued" and row["error"] is None
+    row["state"] = "processing"
+    assert call("PUT /meetings/{id}", {"started_at": "2026-10-22T09:00:00Z"}, id=MEETING)[0] == 409
+    assert len(aws["batch"].submitted) == 1  # on its way: not a second job
+
+
+def test_a_failed_meeting_whose_job_couldnt_be_submitted_can_be_sent_again(aws, monkeypatch):
+    aws["meetings"].put_item({"owner": ME, "meeting_id": MEETING, "state": "failed", "updated_at": api.now()})
+    aws["s3"].put_object("b", f"{BASE}/audio.m4a", b"audio")
+    monkeypatch.setattr(aws["batch"], "fails", True)
+    assert call("PUT /meetings/{id}", {"started_at": "2026-10-22T09:00:00Z"}, id=MEETING)[0] == 500
+    assert aws["meetings"].items[(ME, MEETING)]["state"] == "failed"
+
+
+def test_an_empty_upload_is_cleared_for_a_real_one(aws):
+    aws["meetings"].put_item({"owner": ME, "meeting_id": MEETING, "state": "failed", "updated_at": api.now()})
+    aws["s3"].put_object("b", f"{BASE}/audio.m4a", b"")
+    status, out = call("PUT /meetings/{id}", {"started_at": "2026-10-22T09:00:00Z"}, id=MEETING)
+    assert status == 200 and out["upload_url"].endswith(f"{BASE}/audio.m4a") and f"{BASE}/audio.m4a" not in aws["s3"].objects
+    assert not aws["batch"].submitted
 
 
 def test_a_ready_meeting_comes_with_its_results_clip_links_and_voices_that_sound_alike(aws):

@@ -61,6 +61,8 @@ The summary refers to speakers by id (`{S2}`), never by name, and the app fills 
 
 **The job holds a claim on the meeting.** A meeting deleted in the app, or sent again, stops it without anything changing. The job publishes, not the agent.
 
+**A failed meeting runs again from its audio in S3.** The upload only creates the audio, never replaces it, and Send Again submits the job again from what's there. A job killed without a word (out of memory, say) is failed by Batch's own event, so Send Again shows within minutes. The job logs its memory every 30 seconds, numbers only.
+
 ## People and voiceprints
 
 - **A person** belongs to one owner, with a name, aliases (old names), a role, a company, and an `is_owner` flag ("This is me" in the app).
@@ -95,6 +97,7 @@ The choices that shape Tally, so they aren't undone by mistake.
 - **Voiceprints never reach the agent.** Prepare matches the voices before the agent runs, and the agent's folder holds names and scores only. A voiceprint's one place is the tables, and deleting a person deletes theirs.
 - **0.65 is a strong voiceprint match.** Measured across meetings, the same person scored 0.81 to 0.96, and different people at most 0.49. Below 0.5 is no match.
 - **The owner has the last word on who someone is.** The agent suggests and the owner confirms. Only a voice the owner confirmed is trusted from then on, and the agent fills in a role or company only where it's empty.
+- **The audio is uploaded once, and never replaced.** Send Again once uploaded a recording whose file was gone as an empty body, over the only copy. A conditional upload (`If-None-Match`) keeps the first, and a deleted meeting still deletes its audio at once, which bucket versioning wouldn't.
 - **Shared voices are off by default.** Voiceprints are biometric data, and `sharedVoices` shares the voices of people who never used Tally.
 - **The apps are built on the person's own computer, with no developer account.** macOS blocks a downloaded app without a paid Developer ID, but not one built locally. The cost: Smart App Control and organisations' app control block an app built on a PC until it's signed.
 - **The Windows app mirrors the Mac's.** Each is native, and `Tally.Core` ports the Mac's model with the same names, so the two compare file by file.

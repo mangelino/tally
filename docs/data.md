@@ -7,7 +7,7 @@ Every stored shape.
 ```
 users/<owner>/meetings/<meeting_id>/
   meta.json              written by the API when the app registers the recording
-  audio.m4a              uploaded by the app; its upload starts the job
+  audio.m4a              uploaded by the app, once: its upload starts the job, and Send Again runs from it
   prepared/              the working directory as prepare left it, without audio16k.wav and people.json (for evals and reruns)
   work/                  the working files the job ended with (below), likewise
   files/<file_id>-<name> a file the owner added (file_id a_<ulid>)
@@ -144,7 +144,7 @@ The version ends in a hash of the settings. An archive is never changed once wri
 Five tables, each keyed by `owner` (the token's `sub`) first.
 
 **`meetings`**: PK `owner`, SK `meeting_id`
-- `state`: `uploading` | `queued` (the API) | `processing` | `ready` | `failed` (the job)
+- `state`: `uploading` | `queued` (the API) | `processing` | `ready` | `failed` (the job, or `job_failed.py` for a job killed without a word)
 - `job_id`: the Batch job that claimed it; every write of the job checks it
 - `started_at`, `ended_at`, `title`, `duration`, `language`, `updated_at`
 - `error`: why it failed. The apps offer no Send Again for one starting "No speech" or "This recording is longer".

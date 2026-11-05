@@ -48,6 +48,7 @@ import UserNotifications
     /// label hands over, since only views get it.
     var openMain: (() -> Void)?
     private let drawer = Drawer()
+    private let recordingLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "tally", category: "recordings")  // what became of each
     private let callLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "tally", category: "calls")  // /usr/bin/log show --predicate 'subsystem == "<bundle id>"'
     // What the person was told, so whoever helps can see it afterwards
     private let problemLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "tally", category: "problems")
@@ -303,6 +304,7 @@ import UserNotifications
 
     /// A recording off this Mac: its folder and its row, with the selection moved to the next one.
     private func forget(_ id: String) {
+        recordingLog.notice("recording \(id, privacy: .public) removed from this Mac")
         let neighbour = neighbour(of: id)
         recordings.first { $0.id == id }?.remove()
         recordings.removeAll { $0.id == id }
@@ -642,8 +644,8 @@ import UserNotifications
         return index + 1 < ids.count ? ids[index + 1] : index > 0 ? ids[index - 1] : nil
     }
 
-    /// Sends a meeting again: uploading its audio again starts the pipeline again. A recording that couldn't be
-    /// saved is encoded again first.
+    /// Sends a meeting again: the API runs it again from the audio it has, or takes this Mac's again. A recording that
+    /// couldn't be saved is encoded again first.
     func retry(_ item: Item) {
         guard var recording = recordings.first(where: { $0.id == item.id }), [.sent, .broken].contains(recording.state) else { return }
         recording.error = nil
@@ -1425,6 +1427,7 @@ import UserNotifications
             // (its row is made before the upload starts)
             for recording in recordings where [.sent, .uploaded].contains(recording.state)
                 && !fresh.contains(where: { $0.meetingId == recording.id && $0.state != "ready" }) {
+                recordingLog.notice("recording \(recording.id, privacy: .public) done with: its meeting is ready or gone")
                 recording.remove()
                 recordings.removeAll { $0.id == recording.id }
             }
@@ -1467,6 +1470,12 @@ import UserNotifications
                 } catch is API.AlreadySent {
                     if signedOutMeanwhile() { return }
                     recording.state = .sent
+                    update(recording)
+                    return
+                } catch is API.NoAudio {
+                    recordingLog.error("recording \(id, privacy: .public) has no audio to send")
+                    recording.state = .broken  // only Delete: there's nothing to send again
+                    recording.error = "This recording's audio isn't on this Mac any more, so it can't be sent."
                     update(recording)
                     return
                 }

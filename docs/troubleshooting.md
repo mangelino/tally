@@ -78,7 +78,7 @@ Each new build is a new app to the keychain, so it asks once per install. Choose
 
 ## A meeting failed, or the summary never comes
 
-A summary takes a few minutes, or about 10 when several meetings are on their way. A failed meeting has **Send Again**, since the recording stays on your computer until its summary is ready. *No Speech Heard* and *Too Long to Summarise* (over 4 hours) have only Delete, because sending again would fail the same way. If it fails twice, tell the person who invited you, with the meeting's time.
+A summary takes a few minutes, or about 10 when several meetings are on their way. A failed meeting has **Send Again**, which runs it again from the audio Tally already has. *No Speech Heard* and *Too Long to Summarise* (over 4 hours) have only Delete, because sending again would fail the same way. If it fails twice, tell the person who invited you, with the meeting's time.
 
 ## Tally crashed or froze
 

@@ -18,7 +18,7 @@ Every request carries `X-Tally-Version`, and `GET /meetings` records it in the `
 | Route | What it does |
 |---|---|
 | `GET /meetings` | `{meetings: [{meeting_id, state, title, started_at, ended_at, duration, language, error, updated_at, edited_at, rewriting, rewrite_error, people, folder_ids}]}`, newest first. `edited_at` is the owner's last change |
-| `PUT /meetings/{id}` | Registers a recording: `{started_at, ended_at?, app_version?}`, ISO 8601 with offset. Writes `meta.json` and the row (`uploading`), and returns a presigned PUT for the audio. Again while `uploading` or `failed`: a fresh URL. Otherwise 409. 429 while 10 of the person's other meetings are still being summarised; the apps send it again at their next sync |
+| `PUT /meetings/{id}` | Registers a recording: `{started_at, ended_at?, app_version?}`, ISO 8601 with offset. Writes `meta.json` and the row (`uploading`), and returns a presigned PUT for the audio, with `If-None-Match: *` among its headers: it only creates, never replaces. Again while `uploading` or `failed`: a fresh URL, unless the audio is here already. Then a `failed` one is queued and its job submitted again from that audio, and either answers 409, as sent. Otherwise 409. 429 while 10 of the person's other meetings are still being summarised; the apps send it again at their next sync |
 | `POST /meetings/{id}/uploaded` | The upload finished: `uploading` becomes `queued`. The upload itself started the job |
 | `GET /meetings/{id}` | The meeting, and once `ready` its `results` ([data.md](data.md)). Each speaker gets `clip_urls` and `candidates`, the 5 people closest in voice |
 | `DELETE /meetings/{id}` | The meeting and everything Tally learned from it (below) |
@@ -45,7 +45,7 @@ Presigned URLs are valid for an hour.
 
 ## States
 
-A meeting's `state` is in its row: the API writes `uploading` and `queued`, the job that claimed it `processing`, `ready` and `failed`.
+A meeting's `state` is in its row: the API writes `uploading` and `queued`, the job that claimed it `processing`, `ready` and `failed`. A job killed without a word (out of memory, say) can't write `failed`: Batch's own event for the failed job does, through `api/job_failed.py`, if the meeting is still `processing` by that job.
 
 ```
 uploading → queued → processing → ready
@@ -79,7 +79,7 @@ A meeting still `uploading`, `queued` or `processing` after 3 hours (the job's l
 ## What the app does
 
 1. **Record.** No sign-in needed; recordings wait on the computer.
-2. **Send.** `PUT /meetings/{id}`, PUT the audio to `upload_url`, then `POST /meetings/{id}/uploaded`. A failure retries from the step it reached.
+2. **Send.** `PUT /meetings/{id}`, PUT the audio to `upload_url`, then `POST /meetings/{id}/uploaded`. A failure retries from the step it reached. A 409 means sent: Send Again on a failed meeting is this same call, which runs it again from the audio the API has. Audio missing or empty on the computer is never uploaded: the recording can then only be deleted.
 3. **Poll.** `GET /meetings` every 15 s while anything is on its way, otherwise every 60 s.
 4. **Read.** `GET /meetings/{id}` when one is opened, and again after 50 minutes, before its links expire, or when `GET /meetings` shows its `edited_at` moved: changed on another computer.
 5. **Tidy up.** When a sent meeting is `ready`, or gone, the app deletes its local recording.

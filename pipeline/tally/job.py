@@ -15,6 +15,7 @@ import re
 import shutil
 import signal
 import sys
+import threading
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -114,6 +115,7 @@ def main() -> None:
         log.info("meeting %s was deleted before its job started, or is another job's, or done", meeting_id)
         forget()  # deleted: the upload landed after the delete
         return
+    watch_memory()
     path = ROOT / "work"
     path.mkdir(parents=True, exist_ok=True)
     metrics = []
@@ -180,6 +182,22 @@ def main() -> None:
             forget()
             return
         sys.exit(1)
+
+
+def watch_memory() -> None:
+    """The job's memory in the log every 30 seconds, numbers only: a job killed for memory can't say so itself, and
+    this shows how close it came, and in which step."""
+    proc = Path("/proc/self/status")
+    if not proc.exists():  # not Linux: run by hand
+        return
+
+    def sample() -> None:
+        while True:
+            time.sleep(30)
+            found = dict(line.split(":", 1) for line in proc.read_text().splitlines() if ":" in line)
+            log.info("memory: %d MB, at most %d MB", int(found["VmRSS"].split()[0]) // 1024, int(found["VmHWM"].split()[0]) // 1024)
+
+    threading.Thread(target=sample, daemon=True).start()
 
 
 def match_pool(path: Path, pool: list[dict]) -> tuple[list[dict], dict[str, set[str]]]:

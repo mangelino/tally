@@ -142,6 +142,7 @@ class TallyStack(cdk.Stack):
         # or a warm day, and their AMI is Batch's latest, so their patch group's baseline approves nothing.
         cdk.Tags.of(template).add("PatchGroup", "tally-gpu")
         ssm.CfnPatchBaseline(self, "GpuPatches", name=f"{self.stack_name}-gpu", operating_system="AMAZON_LINUX_2023", patch_groups=["tally-gpu"],
+                             approved_patches=["tally-approves-no-package"],  # a baseline must approve something: no package has this name
                              description="Tally's GPU instances: nothing to install, so Patch Manager never reboots them mid-job")
 
         # On-demand only: GPU spot in eu-north-1 had a placement score of 1/10 and failed every launch, and Batch moves

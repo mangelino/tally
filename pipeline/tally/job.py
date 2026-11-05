@@ -3,8 +3,8 @@
 EventBridge starts it when `users/<owner>/meetings/<id>/audio.*` is uploaded; the owner is the signed-in person whose
 meeting it is, and only their people are matched and changed. The job claims the meeting's row in the meetings
 table (docs/api.md) and writes its progress there: a meeting deleted meanwhile, or sent again, isn't this job's any
-more, and the job stops without changing anything. It loads the owner's people, runs prepare, the agent and
-publish, and copies the meeting's directory back to S3. The log holds steps and timings only: no audio, transcript
+more, and the job stops without changing anything, as it does when Batch stops it. It loads the owner's people, runs
+prepare, the agent and publish, and copies the meeting's directory back to S3. The log holds steps and timings only: no audio, transcript
 or voiceprint ever goes to it.
 """
 
@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import sys
 import time
 from decimal import Decimal
@@ -39,6 +40,16 @@ log = logging.getLogger("tally")
 
 class Stopped(Exception):
     """The meeting isn't this job's any more: deleted in the app, or sent again (another job has it)."""
+
+
+class Terminated(Exception):
+    """Batch stopped the job: the API's delete, the job's time limit, or its instance going away."""
+
+
+def terminate(_signal, _frame) -> None:
+    """Batch stops a job with SIGTERM, and kills it 30 s later: time enough to take back what it wrote for a meeting
+    deleted meanwhile. Without a handler the signal does nothing to the container's first process, which this is."""
+    raise Terminated
 
 
 def main() -> None:
@@ -87,6 +98,7 @@ def main() -> None:
     def forget() -> None:
         """A meeting deleted while this job wrote to it: take back what the job wrote after the app's delete. A
         meeting that's still there is left as it is."""
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)  # Batch's stop, landing now, mustn't cut it short
         if not gone():
             return
         for page in s3.get_paginator("list_objects_v2").paginate(Bucket=settings.bucket, Prefix=f"{prefix}/"):
@@ -106,6 +118,7 @@ def main() -> None:
     path.mkdir(parents=True, exist_ok=True)
     metrics = []
     try:
+        signal.signal(signal.SIGTERM, terminate)
         audio = ROOT / Path(key).name
         s3.download_file(settings.bucket, key, str(audio))
         meta = json.loads(s3.get_object(Bucket=settings.bucket, Key=f"{prefix}/meta.json")["Body"].read())
@@ -143,6 +156,12 @@ def main() -> None:
     except Stopped:
         log.info("meeting %s isn't this job's any more: stopping", meeting_id)
         forget()
+    except Terminated:
+        log.info("meeting %s: Batch stopped the job", meeting_id)
+        forget()
+        # Not a success: a meeting still there keeps this job's claim, which Batch's retry, when the instance went
+        # away, takes back
+        sys.exit(1)
     except (prepare.NoSpeech, prepare.TooLong) as e:
         log.info("meeting %s: %s", meeting_id, type(e).__name__)
         try:

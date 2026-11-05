@@ -43,6 +43,7 @@ from aws_cdk import aws_scheduler as scheduler
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_sns as sns
 from aws_cdk import aws_sns_subscriptions as subscriptions
+from aws_cdk import aws_ssm as ssm
 from constructs import Construct
 
 PIPELINE = Path(__file__).parent.parent / "pipeline"
@@ -136,6 +137,12 @@ class TallyStack(cdk.Stack):
         template = ec2.LaunchTemplate(self, "JobDisk", user_data=user_data, require_imdsv2=True, http_put_response_hop_limit=1, block_devices=[ec2.BlockDevice(
             device_name="/dev/xvda", volume=ec2.BlockDeviceVolume.ebs(100, volume_type=ec2.EbsDeviceVolumeType.GP3, encrypted=True))])
         cdk.Tags.of(template).add("project", "tally")  # onto the GPU instances themselves, so their cost is Tally's in Cost Explorer
+        # An account's own patching (Patch Manager on every instance) rebooted each new GPU instance about 8 minutes in:
+        # the job on it was killed (exit 137), and the boot's firewall rule was gone after. The instances last one job
+        # or a warm day, and their AMI is Batch's latest, so their patch group's baseline approves nothing.
+        cdk.Tags.of(template).add("PatchGroup", "tally-gpu")
+        ssm.CfnPatchBaseline(self, "GpuPatches", name=f"{self.stack_name}-gpu", operating_system="AMAZON_LINUX_2023", patch_groups=["tally-gpu"],
+                             description="Tally's GPU instances: nothing to install, so Patch Manager never reboots them mid-job")
 
         # On-demand only: GPU spot in eu-north-1 had a placement score of 1/10 and failed every launch, and Batch moves
         # to a second environment only when the first is full, not when spot has no capacity.

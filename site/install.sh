@@ -31,9 +31,11 @@ run() {
 
 check_mac() {
   [ "$(uname -s)" = Darwin ] || fail "Tally is a Mac app."
-  local major
-  major=$(sw_vers -productVersion | cut -d. -f1)
-  [ "$major" -ge 26 ] || fail "Tally needs macOS Tahoe (26) or later; this Mac has $(sw_vers -productVersion)."
+  local version major minor
+  version=$(sw_vers -productVersion)
+  major=${version%%.*}; minor=$(echo "$version" | cut -s -d. -f2)
+  [ "$major" -gt 15 ] || { [ "$major" -eq 15 ] && [ "${minor:-0}" -ge 6 ]; } \
+    || fail "Tally needs macOS Sequoia 15.6 or later; this Mac has $version. Update macOS in System Settings, General, Software Update."
 }
 
 TOOLS=/Library/Developer/CommandLineTools

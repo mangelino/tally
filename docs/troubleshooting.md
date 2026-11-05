@@ -29,6 +29,10 @@ Xcode works too, once its licence is accepted (`sudo xcodebuild -license accept`
 
 Your Command Line Tools are older than Xcode 26's. Reinstall them with the two commands above, click Install in the dialog, and run the install command again. If you use Xcode instead, update it to Xcode 26.
 
+## “Tally needs macOS Sequoia 15.6 or later”
+
+Update macOS in System Settings → General → Software Update, then run the install command again.
+
 ## “Building failed”
 
 The log has the compiler's errors. Most often the Command Line Tools are older than macOS: update them first. If it still fails, send the log to the person who invited you.

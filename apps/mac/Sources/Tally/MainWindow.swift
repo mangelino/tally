@@ -38,7 +38,9 @@ struct MainWindow: View {
             .safeAreaInset(edge: .top) { banner }
             // Over what's shown, and only about it: as in Mail, the toolbar above each column acts on that column
             .toolbar {
-                ToolbarSpacer(.flexible)  // at the far end, by the search field, apart from Record over the list
+                if #available(macOS 26, *) {
+                    ToolbarSpacer(.flexible)  // at the far end, by the search field, apart from Record over the list
+                }
                 if model.place == .people {
                     ToolbarItem {
                         Button { if let person = model.selectedPerson { model.editing = PersonForm(person) } } label: { Label("Edit", systemImage: "pencil") }
